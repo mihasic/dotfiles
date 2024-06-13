@@ -1,0 +1,13 @@
+[alias]
+        undo = reset --soft HEAD^
+        lg = log --graph --pretty=format:'%Cred%h%Creset -%C(auto)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit
+[user]
+        name = Mike Rybnikov
+        email = m.rybnikov@fugro.com
+[rerere]
+        enabled = true
+[credential "https://github.com"]
+        helper =
+        helper = !/usr/bin/gh auth git-credential
+[init]
+        defaultBranch = main
