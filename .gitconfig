@@ -4,10 +4,44 @@
 [user]
         name = Mike Rybnikov
         email = m.rybnikov@fugro.com
-[rerere]
-        enabled = true
-[credential "https://github.com"]
-        helper =
-        helper = !/usr/bin/gh auth git-credential
 [init]
         defaultBranch = main
+[pull]
+        rebase = true
+[filter "lfs"]
+        clean = git-lfs clean -- %f
+        smudge = git-lfs smudge -- %f
+        process = git-lfs filter-process
+        required = true
+[column]
+        ui = auto
+[branch]
+        sort = -committerdate
+[tag]
+        sort = version:refname
+[diff]
+        algorithm = histogram
+        colorMoved = plain
+        mnemonicPrefix = true
+        renames = true
+[push]
+        default = simple
+        autoSetupRemote = true
+        followTags = true
+[fetch]
+        prune = true
+        pruneTags = true
+        all = true
+[help]
+        autocorrect = prompt
+[commit]
+        verbose = true
+[rerere]
+        enabled = true
+        autoupdate = true
+[rebase]
+        autoSquash = true
+        autoStash = true
+        updateRefs = true
+[merge]
+        conflictstyle = zdiff3
