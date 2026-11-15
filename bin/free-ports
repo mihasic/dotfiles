@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+if [ $# -eq 0 ]; then
+  echo "usage: free-ports [-9] <port> [port ...]" >&2
+  exit 64
+fi
+
+sig=TERM
+if [ "$1" = "-9" ]; then
+  sig=KILL
+  shift
+fi
+
+status=0
+for port in "$@"; do
+  case "$port" in
+    ''|*[!0-9]*)
+      echo "free-ports: not a port: $port" >&2
+      status=1
+      continue
+      ;;
+  esac
+
+  pids=$(lsof -nP -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | sort -u)
+  if [ -z "$pids" ]; then
+    echo "port $port: free"
+    continue
+  fi
+
+  for pid in $pids; do
+    [ "$pid" = "$$" ] && continue
+    cmd=$(ps -p "$pid" -o comm= 2>/dev/null | sed 's|.*/||')
+    if kill -"$sig" "$pid" 2>/dev/null; then
+      echo "port $port: killed $pid ($cmd)"
+    else
+      echo "port $port: failed to kill $pid ($cmd)" >&2
+      status=1
+    fi
+  done
+done
+exit $status

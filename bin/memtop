@@ -1,0 +1,14 @@
+#!/bin/bash
+# Per-app memory footprint, biggest first. Footprint counts compressed pages
+# at logical size, so the total can exceed installed RAM (that's the overcommit).
+awk '
+function mb(v){u=substr(v,length(v),1);x=substr(v,1,length(v)-1)+0
+  return u=="G"?x*1024:u=="K"?x/1024:u=="B"?x/1048576:u=="M"?x:0}
+NR==FNR{m[$1]=mb($2);next}
+{p=$1;$1=""
+ if(match($0,/[^\/]+\.app\//)){n=substr($0,RSTART,RLENGTH-1);sub(/\.app$/,"",n)}
+ else n=substr($0,match($0,/[^\/ ]+$/))
+ s[n]+=m[p];c[n]++;t+=m[p]}
+END{for(i in s) if(s[i]>=200) printf "%7.2f GB  %3d  %s\n",s[i]/1024,c[i],i | "sort -rn"
+    close("sort -rn"); printf "%7.2f GB  %3d  TOTAL\n",t/1024,FNR}
+' <(top -l1 -n9999 -stats pid,mem | sed -n '/^ *PID/,$p' | tail -n +2) <(ps -Ao pid=,comm=)

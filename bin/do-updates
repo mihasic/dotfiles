@@ -1,0 +1,18 @@
+#!/usr/bin/env zsh
+
+brew update && brew upgrade
+
+fnm install --lts
+
+npm -g update
+
+uv python upgrade
+
+# claude update
+# copilot update
+bun upgrade
+dotnet tool update --global dotnet-ef
+
+# cargo install-update -a
+rustup self update
+rustup update

@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROTECTED_BRANCHES="main master develop dev"
+DRY_RUN=false
+
+usage() {
+    cat <<EOF
+Usage: git clean-squashed [options]
+
+Remove local branches (and their linked worktrees) that have been
+squash-merged or regular-merged into origin/main (or origin/master).
+
+Options:
+  -n, --dry-run   Show what would be deleted without deleting anything
+  -h, --help      Show this help
+EOF
+}
+
+for arg in "$@"; do
+    case "$arg" in
+        -n|--dry-run) DRY_RUN=true ;;
+        -h|--help) usage; exit 0 ;;
+        *) echo "Unknown option: $arg"; usage; exit 1 ;;
+    esac
+done
+
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+DIM='\033[2m'
+NC='\033[0m'
+
+info()    { echo -e "${CYAN}>${NC} $*"; }
+deleted() { echo -e "${RED}✗${NC} $*"; }
+kept()    { echo -e "${DIM}~${NC} $*"; }
+dry()     { echo -e "${YELLOW}(dry-run)${NC} $*"; }
+
+git rev-parse --git-dir >/dev/null 2>&1 || { echo "Not a git repository."; exit 1; }
+
+# Resolve main branch
+MAIN_BRANCH=""
+for b in main master; do
+    if git rev-parse --verify "origin/$b" >/dev/null 2>&1; then
+        MAIN_BRANCH=$b
+        break
+    fi
+done
+[[ -n "$MAIN_BRANCH" ]] || { echo "Could not find origin/main or origin/master."; exit 1; }
+
+CURRENT_BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
+
+info "Fetching origin..."
+git fetch origin --prune -q
+
+# Get worktree info as "branch<TAB>path" pairs (skip the main worktree's branch)
+# git worktree list --porcelain output groups: "worktree <path>\nHEAD <sha>\nbranch refs/heads/<name>\n"
+WORKTREE_MAP=$(git worktree list --porcelain | awk '
+    /^worktree / { path = substr($0, 10) }
+    /^branch refs\/heads\// { branch = substr($0, 19); print branch "\t" path }
+')
+
+worktree_path_for() {
+    echo "$WORKTREE_MAP" | awk -F'\t' -v b="$1" '$1 == b { print $2; exit }'
+}
+
+is_protected() {
+    local branch=$1
+    [[ "$branch" == "$CURRENT_BRANCH" ]] && return 0
+    for p in $PROTECTED_BRANCHES; do
+        [[ "$branch" == "$p" ]] && return 0
+    done
+    return 1
+}
+
+# True if branch tip is a reachable ancestor of main (regular merge)
+is_merged() {
+    git merge-base --is-ancestor "$1" "origin/$MAIN_BRANCH" 2>/dev/null
+}
+
+# True if the branch's changes were squash-committed into main.
+# Technique: synthesise a single commit whose tree == branch tip, parent == merge-base,
+# then ask `git cherry` whether that patch already landed in main.
+is_squash_merged() {
+    local branch=$1
+    local merge_base branch_tip squash_commit
+
+    merge_base=$(git merge-base "origin/$MAIN_BRANCH" "$branch" 2>/dev/null) || return 1
+    branch_tip=$(git rev-parse "$branch" 2>/dev/null) || return 1
+
+    # Already an ancestor — handled by is_merged
+    [[ "$merge_base" == "$branch_tip" ]] && return 1
+
+    squash_commit=$(git commit-tree "$branch^{tree}" -p "$merge_base" -m "squash-check" 2>/dev/null) || return 1
+
+    # "- <sha>" means the equivalent patch is already upstream
+    git cherry "origin/$MAIN_BRANCH" "$squash_commit" 2>/dev/null | grep -q "^-"
+}
+
+n_deleted=0
+n_kept=0
+
+info "Scanning local branches against origin/$MAIN_BRANCH..."
+echo ""
+
+while IFS= read -r branch; do
+    if is_protected "$branch"; then
+        continue
+    fi
+
+    if is_merged "$branch" || is_squash_merged "$branch"; then
+        wt_path=$(worktree_path_for "$branch")
+
+        if $DRY_RUN; then
+            [[ -n "$wt_path" ]] && dry "remove worktree  $wt_path"
+            dry "delete branch    $branch"
+        else
+            if [[ -n "$wt_path" ]]; then
+                deleted "removing worktree  $wt_path"
+                # --force twice: once for a dirty worktree, once for a locked one
+                if ! git worktree remove --force "$wt_path" 2>/dev/null; then
+                    git worktree remove --force --force "$wt_path" 2>/dev/null || {
+                        rm -rf "$wt_path"
+                        git worktree prune
+                    }
+                fi
+            fi
+
+            deleted "deleting branch    $branch"
+            if ! git branch -D "$branch" 2>/dev/null; then
+                kept "keeping  $branch (worktree removal failed, branch still checked out)"
+                n_kept=$((n_kept + 1))
+                continue
+            fi
+        fi
+        n_deleted=$((n_deleted + 1))
+    else
+        kept "keeping  $branch"
+        n_kept=$((n_kept + 1))
+    fi
+done < <(git branch --format='%(refname:short)')
+
+echo ""
+if $DRY_RUN; then
+    info "Dry run: $n_deleted branch(es) would be removed, $n_kept kept."
+else
+    info "Done: $n_deleted branch(es) removed, $n_kept kept."
+fi

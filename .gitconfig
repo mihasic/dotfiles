@@ -1,9 +1,6 @@
 [alias]
         undo = reset --soft HEAD^
         lg = log --graph --pretty=format:'%Cred%h%Creset -%C(auto)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit
-[user]
-        name = Mike Rybnikov
-        email = m.rybnikov@fugro.com
 [init]
         defaultBranch = main
 [pull]
